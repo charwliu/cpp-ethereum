@@ -38,7 +38,7 @@ public:
 	virtual std::string suiteFolder() const = 0;
 
 	// Execute all tests from _folder
-	void runAllTestsInFolder(std::string const& _testFolder) const;
+	void runAllTestsInFolder(std::string const& _testFolder, test::AccessSwitch _accessSwitch) const;
 
 	// Copy .json tests from the src folder to the dest folder because such test is crafted manually and could not be filled.
 	// Used in bcForgedTest, ttWrongRLP tests and such.

@@ -47,7 +47,7 @@ namespace dev
 namespace test
 {
 
-void TestSuite::runAllTestsInFolder(string const& _testFolder) const
+void TestSuite::runAllTestsInFolder(string const& _testFolder, test::AccessSwitch _accessSwitch) const
 {
 	string const filter = test::Options::get().singleTestName.empty() ? string() : test::Options::get().singleTestName + "Filler";
 	std::vector<boost::filesystem::path> const files = test::getJsonFiles(getFullPathFiller(suiteFolder(), _testFolder).string(), filter);
@@ -67,7 +67,7 @@ void TestSuite::runAllTestsInFolder(string const& _testFolder) const
 	for (auto const& file: files)
 	{
 		test::TestOutputHelper::setCurrentTestFileName(file.filename().string());
-		executeTests(file.filename().string(), destTestFolder.string(), srcTestFolder.string(), suiteTestDo);
+		executeTests(file.filename().string(), {destTestFolder.string(), _accessSwitch}, srcTestFolder.string(), suiteTestDo);
 	}
 }
 
