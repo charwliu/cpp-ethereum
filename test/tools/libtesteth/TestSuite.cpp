@@ -67,7 +67,7 @@ void TestSuite::runAllTestsInFolder(string const& _testFolder, test::AccessSwitc
 	for (auto const& file: files)
 	{
 		test::TestOutputHelper::setCurrentTestFileName(file.filename().string());
-		executeTests(file.filename().string(), {destTestFolder.string(), _accessSwitch}, srcTestFolder.string(), suiteTestDo);
+		executeTests(file.filename().string(), {destTestFolder, _accessSwitch}, srcTestFolder, suiteTestDo);
 	}
 }
 
