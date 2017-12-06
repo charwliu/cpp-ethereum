@@ -27,11 +27,11 @@
 #include <clocale>
 #include <cstdlib>
 #include <iostream>
+#include <thread>
 #include <test/tools/libtesteth/TestHelper.h>
 
 using namespace boost::unit_test;
 
-std::vector<char*> parameters;
 static std::ostringstream strCout;
 std::streambuf* oldCoutStreamBuf;
 std::streambuf* oldCerrStreamBuf;
@@ -42,20 +42,16 @@ void createRandomTestWrapper()
 	std::cout.rdbuf(oldCoutStreamBuf);
 	std::cerr.rdbuf(oldCerrStreamBuf);
 
-	//For no reason BOOST tend to remove valuable arg -t "TestSuiteName"
-	//And can't hadle large input stream of data
-	//so the actual test suite and raw test input is read into Options
-	if (dev::test::createRandomTest())
-		throw framework::internal_error("Create Random Test Error!");
+	if (!dev::test::createRandomTest())
+		throw framework::internal_error("Create random test error! See std::error for more details.");
 
 	exit(0);
 }
 
-static std::atomic_bool stopTravisOut;
-void travisOut()
+void travisOut(std::atomic_bool *_stopTravisOut)
 {
 	int tickCounter = 0;
-	while (!stopTravisOut)
+	while (!*_stopTravisOut)
 	{
 		std::this_thread::sleep_for(std::chrono::seconds(1));
 		++tickCounter;
@@ -90,6 +86,7 @@ void setDefaultOrCLocale()
 //Custom Boost Unit Test Main
 int main( int argc, char* argv[] )
 {
+	std::string const dynamicTestSuiteName = "RandomTestCreationSuite";
 	setDefaultOrCLocale();
 	try
 	{
@@ -97,7 +94,7 @@ int main( int argc, char* argv[] )
 		dev::test::Options const& opt = dev::test::Options::get(argc, argv);
 		if (opt.createRandomTest)
 		{
-			//disable initial output
+			// Disable initial output as the random test will output valid json to std
 			oldCoutStreamBuf = std::cout.rdbuf();
 			oldCerrStreamBuf = std::cerr.rdbuf();
 			std::cout.rdbuf(strCout.rdbuf());
@@ -105,22 +102,16 @@ int main( int argc, char* argv[] )
 
 			for (int i = 0; i < argc; i++)
 			{
-				std::string arg = std::string{argv[i]};
-
 				//replace test suite to random tests
+				std::string arg = std::string{argv[i]};
 				if (arg == "-t" && i+1 < argc)
-					argv[i+1] = (char*)std::string("RandomTestCreationSuite").c_str();
-
-				//don't pass long raw test input to boost
-				if (arg == "--checktest")
 				{
-					argc = i + 1;
+					argv[i + 1] = (char*)dynamicTestSuiteName.c_str();
 					break;
 				}
 			}
 
 			//add random tests suite
-			// FIXME:
 			test_suite* ts1 = BOOST_TEST_SUITE("RandomTestCreationSuite");
 			ts1->add(BOOST_TEST_CASE(&createRandomTestWrapper));
 			framework::master_test_suite().add(ts1);
@@ -132,15 +123,12 @@ int main( int argc, char* argv[] )
 		exit(1);
 	}
 
-	for (int i = 0; i < argc; i++)
-		parameters.push_back(argv[i]);
-
-	stopTravisOut = false;
-	std::thread outputThread(travisOut);
+	std::atomic_bool stopTravisOut{false};
+	std::thread outputThread(travisOut, &stopTravisOut);
 	auto fakeInit = [](int, char*[]) -> boost::unit_test::test_suite* { return nullptr; };
 	int result = unit_test_main(fakeInit, argc, argv);
 	stopTravisOut = true;
 	outputThread.join();
-	dev::test::TestOutputHelper::printTestExecStats();
+	dev::test::TestOutputHelper::get().printTestExecStats();
 	return result;
 }

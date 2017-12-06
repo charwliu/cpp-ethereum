@@ -46,7 +46,7 @@ class EthereumPeer;
  * @brief Base BlockChain synchronization strategy class.
  * Syncs to peers and keeps up to date. Base class handles blocks downloading but does not contain any details on state transfer logic.
  */
-class BlockChainSync: public HasInvariants
+class BlockChainSync final: public HasInvariants
 {
 public:
 	BlockChainSync(EthereumHost& _host);
@@ -104,6 +104,8 @@ private:
 	void clearPeerDownload(std::shared_ptr<EthereumPeer> _peer);
 	void clearPeerDownload();
 	void collectBlocks();
+	bool requestDaoForkBlockHeader(std::shared_ptr<EthereumPeer> _peer);
+	bool verifyDaoChallengeResponse(RLP const& _r);
 
 private:
 	struct Header
@@ -140,7 +142,8 @@ private:
 	EthereumHost& m_host;
 	Handler<> m_bqRoomAvailable;				///< Triggered once block queue has space for more blocks
 	mutable RecursiveMutex x_sync;
-	SyncState m_state = SyncState::Idle;		///< Current sync state
+	std::set<std::weak_ptr<EthereumPeer>, std::owner_less<std::weak_ptr<EthereumPeer>>> m_daoChallengedPeers; ///> Peers to which we've sent DAO challenge request
+	std::atomic<SyncState> m_state{SyncState::Idle};		///< Current sync state
 	h256Hash m_knownNewHashes; 					///< New hashes we know about use for logging only
 	unsigned m_chainStartBlock = 0;
 	unsigned m_startingBlock = 0;      	    	///< Last block number for the start of sync

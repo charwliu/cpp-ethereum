@@ -73,14 +73,13 @@ template <> struct StreamOut<uint8_t> { static std::ostream& bypass(std::ostream
 inline std::ostream& operator<<(std::ostream& _out, bytes const& _e) { _out << toHexPrefixed(_e); return _out; }
 template <class T> inline std::ostream& operator<<(std::ostream& _out, std::vector<T> const& _e);
 template <class T, std::size_t Z> inline std::ostream& operator<<(std::ostream& _out, std::array<T, Z> const& _e);
-template <class T, class U> inline std::ostream& operator<<(std::ostream& _out, std::map<T, U> const& _e);
 template <class T, class U> inline std::ostream& operator<<(std::ostream& _out, std::set<T, U> const& _e);
 template <class T, class U> inline std::ostream& operator<<(std::ostream& _out, std::unordered_set<T, U> const& _e);
 
 #if defined(_WIN32)
-template <class T> inline std::string toString(std::chrono::time_point<T> const& _e, std::string _format = "%Y-%m-%d %H:%M:%S")
+template <class T> inline std::string toString(std::chrono::time_point<T> const& _e, std::string const& _format = "%Y-%m-%d %H:%M:%S")
 #else
-template <class T> inline std::string toString(std::chrono::time_point<T> const& _e, std::string _format = "%F %T")
+template <class T> inline std::string toString(std::chrono::time_point<T> const& _e, std::string const& _format = "%F %T")
 #endif
 {
 	unsigned long milliSecondsSinceEpoch = std::chrono::duration_cast<std::chrono::milliseconds>(_e.time_since_epoch()).count();

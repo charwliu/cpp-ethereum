@@ -32,6 +32,7 @@
 #include <libevm/VM.h>
 #include <test/tools/libtesteth/TestHelper.h>
 #include <test/tools/libtesteth/TestSuite.h>
+#include <test/tools/jsontests/StateTests.h>
 
 using namespace std;
 using namespace json_spirit;
@@ -41,97 +42,87 @@ namespace fs = boost::filesystem;
 
 namespace dev {  namespace test {
 
-class StateTestSuite: public TestSuite
+json_spirit::mValue StateTestSuite::doTests(json_spirit::mValue const& _input, bool _fillin) const
 {
-public:
-	json_spirit::mValue doTests(json_spirit::mValue const& _input, bool _fillin) const override
-	{
-		BOOST_REQUIRE_MESSAGE(_input.type() == obj_type,
-			TestOutputHelper::testFileName() + " A GeneralStateTest file should contain an object.");
-		BOOST_REQUIRE_MESSAGE(!_fillin || _input.get_obj().size() == 1,
-			TestOutputHelper::testFileName() + " A GeneralStateTest filler should contain only one test.");
-		json_spirit::mValue v = json_spirit::mObject();
+	BOOST_REQUIRE_MESSAGE(_input.type() == obj_type,
+		TestOutputHelper::get().get().testFileName() + " A GeneralStateTest file should contain an object.");
+	BOOST_REQUIRE_MESSAGE(!_fillin || _input.get_obj().size() == 1,
+		TestOutputHelper::get().testFileName() + " A GeneralStateTest filler should contain only one test.");
+	json_spirit::mValue v = json_spirit::mObject();
 
-		for (auto& i: _input.get_obj())
+	for (auto& i: _input.get_obj())
+	{
+		string const testname = i.first;
+		BOOST_REQUIRE_MESSAGE(i.second.type() == obj_type,
+			TestOutputHelper::get().testFileName() + " should contain an object under a test name.");
+		json_spirit::mObject const& inputTest = i.second.get_obj();
+		v.get_obj()[testname] = json_spirit::mObject();
+		json_spirit::mObject& outputTest = v.get_obj()[testname].get_obj();
+
+		if (_fillin && !TestOutputHelper::get().testFileName().empty())
+			BOOST_REQUIRE_MESSAGE(testname + "Filler.json" == TestOutputHelper::get().testFileName(),
+				TestOutputHelper::get().testFileName() + " contains a test with a different name '" + testname + "'" );
+
+		if (!TestOutputHelper::get().checkTest(testname))
+			continue;
+
+		BOOST_REQUIRE_MESSAGE(inputTest.count("env") > 0, testname + " env not set!");
+		BOOST_REQUIRE_MESSAGE(inputTest.count("pre") > 0, testname + " pre not set!");
+		BOOST_REQUIRE_MESSAGE(inputTest.count("transaction") > 0, testname + " transaction not set!");
+
+		ImportTest importer(inputTest, outputTest);
+		Listener::ExecTimeGuard guard{i.first};
+		importer.executeTest();
+
+		if (_fillin)
 		{
-			string const testname = i.first;
-			BOOST_REQUIRE_MESSAGE(i.second.type() == obj_type,
-				TestOutputHelper::testFileName() + " should contain an object under a test name.");
-			json_spirit::mObject const& inputTest = i.second.get_obj();
-			v.get_obj()[testname] = json_spirit::mObject();
-			json_spirit::mObject& outputTest = v.get_obj()[testname].get_obj();
-
-			if (_fillin && !TestOutputHelper::testFileName().empty())
-				BOOST_REQUIRE_MESSAGE(testname + "Filler.json" == TestOutputHelper::testFileName(),
-					TestOutputHelper::testFileName() + " contains a test with a different name '" + testname + "'" );
-
-			if (!TestOutputHelper::passTest(testname))
-				continue;
-
-			//For 100% at the log output when making blockchain tests out of state tests
-			if (_fillin == false && Options::get().fillchain)
-				continue;
-
-			BOOST_REQUIRE_MESSAGE(inputTest.count("env") > 0, testname + " env not set!");
-			BOOST_REQUIRE_MESSAGE(inputTest.count("pre") > 0, testname + " pre not set!");
-			BOOST_REQUIRE_MESSAGE(inputTest.count("transaction") > 0, testname + " transaction not set!");
-
-			ImportTest importer(inputTest, outputTest);
-
-			Listener::ExecTimeGuard guard{i.first};
-			importer.executeTest();
-			if (Options::get().fillchain)
-				continue;
-
-			if (_fillin)
-			{
 #if ETH_FATDB
-				if (importer.exportTest())
-					cerr << testname << endl;
+			if (inputTest.count("_info"))
+				outputTest["_info"] = inputTest.at("_info");
+
+			if (importer.exportTest())
+				cerr << testname << endl;
 #else
-				BOOST_THROW_EXCEPTION(Exception() << errinfo_comment(testname + " You can not fill tests when FATDB is switched off"));
+			BOOST_THROW_EXCEPTION(Exception() << errinfo_comment(testname + " You can not fill tests when FATDB is switched off"));
 #endif
-			}
-			else
-			{
-				BOOST_REQUIRE_MESSAGE(inputTest.count("post") > 0, testname + " post not set!");
-				BOOST_REQUIRE_MESSAGE(inputTest.at("post").type() == obj_type, testname + " post field is not an object.");
-
-				//check post hashes against cpp client on all networks
-				mObject post = inputTest.at("post").get_obj();
-				vector<size_t> wrongTransactionsIndexes;
-				for (mObject::const_iterator i = post.begin(); i != post.end(); ++i)
-				{
-					BOOST_REQUIRE_MESSAGE(i->second.type() == array_type, testname + " post field should contain an array for each network.");
-					for (auto const& exp: i->second.get_array())
-					{
-						BOOST_REQUIRE_MESSAGE(exp.type() == obj_type, " post field should contain an array of objects for each network.");
-						if (!Options::get().singleTestNet.empty() && i->first != Options::get().singleTestNet)
-							continue;
-						if (test::isDisabledNetwork(test::stringToNetId(i->first)))
-							continue;
-						importer.checkGeneralTestSection(exp.get_obj(), wrongTransactionsIndexes, i->first);
-					}
-				}
-
-				if (Options::get().statediff)
-					importer.traceStateDiff();
-			}
 		}
-		return v;
-	}
+		else
+		{
+			BOOST_REQUIRE_MESSAGE(inputTest.count("post") > 0, testname + " post not set!");
+			BOOST_REQUIRE_MESSAGE(inputTest.at("post").type() == obj_type, testname + " post field is not an object.");
 
-	std::string suiteFolder() const override
-	{
-		return test::c_GeneralStateTests;
-	}
-};
+			//check post hashes against cpp client on all networks
+			mObject post = inputTest.at("post").get_obj();
+			vector<size_t> wrongTransactionsIndexes;
+			for (mObject::const_iterator i = post.begin(); i != post.end(); ++i)
+			{
+				BOOST_REQUIRE_MESSAGE(i->second.type() == array_type, testname + " post field should contain an array for each network.");
+				for (auto const& exp: i->second.get_array())
+				{
+					BOOST_REQUIRE_MESSAGE(exp.type() == obj_type, " post field should contain an array of objects for each network.");
+					if (!Options::get().singleTestNet.empty() && i->first != Options::get().singleTestNet)
+						continue;
+					if (test::isDisabledNetwork(test::stringToNetId(i->first)))
+						continue;
+					importer.checkGeneralTestSection(exp.get_obj(), wrongTransactionsIndexes, i->first);
+				}
+			}
 
-//for fuzzed tests
-json_spirit::mValue doStateTests(json_spirit::mValue const& _input, bool _fillin)
+			if (Options::get().statediff)
+				importer.traceStateDiff();
+		}
+	}
+	return v;
+}
+
+fs::path StateTestSuite::suiteFolder() const
 {
-	test::StateTestSuite suite;
-	return suite.doTests(_input, _fillin);
+	return "GeneralStateTests";
+}
+
+fs::path StateTestSuite::suiteFillerFolder() const
+{
+	return "GeneralStateTestsFiller";
 }
 
 } }// Namespace Close
@@ -141,18 +132,18 @@ class GeneralTestFixture
 public:
 	GeneralTestFixture()
 	{
+		test::StateTestSuite suite;
+		test::tryRunSingleTestFile(suite);
 		string casename = boost::unit_test::framework::current_test_case().p_name;
 		if (casename == "stQuadraticComplexityTest" && !test::Options::get().all)
 		{
-			cnote << "Skipping " << casename << " because --all option is not specified.\n";
+			std::cout << "Skipping " << casename << " because --all option is not specified.\n";
 			return;
 		}
-		test::StateTestSuite suite;
 		suite.runAllTestsInFolder(casename);
 	}
 };
 
-std::string const test::c_GeneralStateTests = "GeneralStateTests";	//used in fuzzTests
 BOOST_FIXTURE_TEST_SUITE(GeneralStateTests, GeneralTestFixture)
 
 //Frontier Tests
@@ -163,7 +154,9 @@ BOOST_AUTO_TEST_CASE(stInitCodeTest){}
 BOOST_AUTO_TEST_CASE(stLogTests){}
 BOOST_AUTO_TEST_CASE(stMemoryTest){}
 BOOST_AUTO_TEST_CASE(stPreCompiledContracts){}
+BOOST_AUTO_TEST_CASE(stPreCompiledContracts2){}
 BOOST_AUTO_TEST_CASE(stRandom){}
+BOOST_AUTO_TEST_CASE(stRandom2){}
 BOOST_AUTO_TEST_CASE(stRecursiveCreate){}
 BOOST_AUTO_TEST_CASE(stRefundTest){}
 BOOST_AUTO_TEST_CASE(stSolidityTest){}
@@ -199,6 +192,9 @@ BOOST_AUTO_TEST_CASE(stStackTests){}
 BOOST_AUTO_TEST_CASE(stStaticCall){}
 BOOST_AUTO_TEST_CASE(stReturnDataTest){}
 BOOST_AUTO_TEST_CASE(stZeroKnowledge){}
+BOOST_AUTO_TEST_CASE(stZeroKnowledge2){}
+BOOST_AUTO_TEST_CASE(stCodeCopyTest){}
+BOOST_AUTO_TEST_CASE(stBugs){}
 
 //Stress Tests
 BOOST_AUTO_TEST_CASE(stAttackTest){}

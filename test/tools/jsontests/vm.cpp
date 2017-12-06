@@ -25,7 +25,6 @@
 #include <libethereum/ChainParams.h>
 #include <libethereum/Executive.h>
 #include <libevm/VMFactory.h>
-#include <libevm/ExtVMFace.h>
 #include <boost/filesystem.hpp>
 #include <test/tools/libtesteth/TestSuite.h>
 
@@ -305,7 +304,7 @@ class VmTestSuite: public TestSuite
 		{
 			string const& testname = i.first;
 			json_spirit::mObject const& testInput = i.second.get_obj();
-			if (!TestOutputHelper::passTest(testname))
+			if (!TestOutputHelper::get().checkTest(testname))
 				continue;
 
 			output[testname] = json_spirit::mObject();
@@ -324,7 +323,11 @@ class VmTestSuite: public TestSuite
 			fev.importState(testInput.at("pre").get_obj());
 
 			if (_fillin)
+			{
 				testOutput["pre"] = mValue(fev.exportState());
+				if (testInput.count("_info"))
+					testOutput["_info"] = testInput.at("_info");
+			}
 
 			fev.importExec(testInput.at("exec").get_obj());
 			if (fev.code.empty())
@@ -465,9 +468,14 @@ class VmTestSuite: public TestSuite
 		return v;
 	}
 
-	std::string suiteFolder() const override
+	fs::path suiteFolder() const override
 	{
 		return "VMTests";
+	}
+
+	fs::path suiteFillerFolder() const override
+	{
+		return "VMTestsFiller";
 	}
 };
 
@@ -478,13 +486,14 @@ class VmTestFixture
 public:
 	VmTestFixture()
 	{
+		test::VmTestSuite suite;
+		tryRunSingleTestFile(suite);
 		string const& casename = boost::unit_test::framework::current_test_case().p_name;
 		if (casename == "vmPerformance" && !Options::get().all)
 		{
-			cnote << "Skipping " << casename << " because --all option is not specified.\n";
+			std::cout << "Skipping " << casename << " because --all option is not specified.\n";
 			return;
 		}
-		test::VmTestSuite suite;
 		suite.runAllTestsInFolder(casename);
 	}
 };

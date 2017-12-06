@@ -61,6 +61,7 @@ WebThreeDirect::WebThreeDirect(
 			m_ethereum.reset(new eth::ClientTest(_params, (int)_params.networkID, &m_net, shared_ptr<GasPricer>(), _dbPath, _we));
 		else
 			m_ethereum.reset(new eth::Client(_params, (int)_params.networkID, &m_net, shared_ptr<GasPricer>(), _dbPath, _we));
+		m_ethereum->startWorking();
 		string bp = DEV_QUOTED(ETH_BUILD_PLATFORM);
 		vector<string> bps;
 		boost::split(bps, bp, boost::is_any_of("/"));
@@ -69,9 +70,6 @@ WebThreeDirect::WebThreeDirect(
 		bps.back() = bps.back().substr(0, 3);
 		m_ethereum->setExtraData(rlpList(0, string(dev::Version) + "++" + string(DEV_QUOTED(ETH_COMMIT_HASH)).substr(0, 4) + (ETH_CLEAN_REPO ? "-" : "*") + string(DEV_QUOTED(ETH_BUILD_TYPE)).substr(0, 1) + boost::join(bps, "/")));
 	}
-
-	if (_interfaces.count("shh"))
-		m_whisper = m_net.registerCapability(make_shared<WhisperHost>());
 }
 
 WebThreeDirect::~WebThreeDirect()

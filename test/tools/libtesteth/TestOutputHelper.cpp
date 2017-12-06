@@ -30,18 +30,15 @@ using namespace dev::test;
 using namespace dev::eth;
 using namespace boost;
 
-Timer TestOutputHelper::m_timer;
-size_t TestOutputHelper::m_currTest = 0;
-size_t TestOutputHelper::m_maxTests = 1;
-string TestOutputHelper::m_currentTestName = "n/a";
-string TestOutputHelper::m_currentTestCaseName = "n/a";
-string TestOutputHelper::m_currentTestFileName;
-std::vector<TestOutputHelper::execTimeName> TestOutputHelper::m_execTimeResults;
 void TestOutputHelper::initTest(size_t _maxTests)
 {
 	Ethash::init();
-	BasicAuthority::init();
 	NoProof::init();
+	BasicAuthority::init();
+	m_currentTestName = "n/a";
+	m_currentTestFileName = string();
+	m_execTimeResults = std::vector<execTimeName>();
+	m_timer = Timer();
 	m_timer.restart();
 	m_currentTestCaseName = boost::unit_test::framework::current_test_case().p_name;
 	if (!Options::get().createRandomTest)
@@ -50,7 +47,17 @@ void TestOutputHelper::initTest(size_t _maxTests)
 	m_currTest = 0;
 }
 
-bool TestOutputHelper::passTest(std::string const& _testName)
+bool TestOutputHelper::checkTest(std::string const& _testName)
+{
+	if (test::Options::get().singleTest && test::Options::get().singleTestName != _testName)
+		return false;
+
+	cnote << _testName;
+	m_currentTestName = _testName;
+	return true;
+}
+
+void TestOutputHelper::showProgress()
 {
 	m_currTest++;
 	int m_testsPerProgs = std::max(1, (int)(m_maxTests / 4));
@@ -62,13 +69,6 @@ bool TestOutputHelper::passTest(std::string const& _testName)
 			std::cout << "...";
 		std::cout << "\n";
 	}
-
-	if (test::Options::get().singleTest && test::Options::get().singleTestName != _testName)
-		return false;
-
-	cnote << _testName;
-	m_currentTestName = _testName;
-	return true;
 }
 
 void TestOutputHelper::finishTest()

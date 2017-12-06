@@ -67,9 +67,10 @@ Client::Client(
 	WithExisting _forceAction,
 	TransactionQueue::Limits const& _l
 ):
-	ClientBase(_l),
+	ClientBase(),
 	Worker("eth", 0),
 	m_bc(_params, _dbPath, _forceAction, [](unsigned d, unsigned t){ std::cerr << "REVISING BLOCKCHAIN: Processed " << d << " of " << t << "...\r"; }),
+	m_tq(_l),
 	m_gp(_gpForAdoption ? _gpForAdoption : make_shared<TrivialGasPricer>()),
 	m_preSeal(chainParams().accountStartNonce),
 	m_postSeal(chainParams().accountStartNonce),
@@ -123,7 +124,6 @@ void Client::init(p2p::Host* _extNet, fs::path const& _dbPath, WithExisting _for
 	if (_dbPath.size())
 		Defaults::setDBPath(_dbPath);
 	doWork(false);
-	startWorking();
 }
 
 ImportResult Client::queueBlock(bytes const& _block, bool _isSafe)
@@ -196,7 +196,7 @@ bool Client::isMajorSyncing() const
 	if (auto h = m_host.lock())
 	{
 		SyncState state = h->status().state;
-		return (state != SyncState::Idle && state != SyncState::NewBlocks) || h->bq().items().first > 10;
+		return state != SyncState::Idle || h->bq().items().first > 10;
 	}
 	return false;
 }
@@ -398,6 +398,8 @@ void Client::syncBlockQueue()
 
 void Client::syncTransactionQueue()
 {
+	resyncStateFromChain();
+
 	Timer timer;
 
 	h256Hash changeds;
@@ -475,46 +477,45 @@ void Client::onNewBlocks(h256s const& _blocks, h256Hash& io_changed)
 
 void Client::resyncStateFromChain()
 {
+	DEV_READ_GUARDED(x_working)
+		if (bc().currentHash() == m_working.info().parentHash())
+			return;
+		
 	// RESTART MINING
 
-//	ctrace << "resyncStateFromChain()";
+	bool preChanged = false;
+	Block newPreMine(chainParams().accountStartNonce);
+	DEV_READ_GUARDED(x_preSeal)
+		newPreMine = m_preSeal;
 
-	if (!isMajorSyncing())
+	// TODO: use m_postSeal to avoid re-evaluating our own blocks.
+	preChanged = newPreMine.sync(bc());
+
+	if (preChanged || m_postSeal.author() != m_preSeal.author())
 	{
-		bool preChanged = false;
-		Block newPreMine(chainParams().accountStartNonce);
-		DEV_READ_GUARDED(x_preSeal)
-			newPreMine = m_preSeal;
-
-		// TODO: use m_postSeal to avoid re-evaluating our own blocks.
-		preChanged = newPreMine.sync(bc());
-
-		if (preChanged || m_postSeal.author() != m_preSeal.author())
-		{
-			DEV_WRITE_GUARDED(x_preSeal)
-				m_preSeal = newPreMine;
-			DEV_WRITE_GUARDED(x_working)
-				m_working = newPreMine;
-			DEV_READ_GUARDED(x_postSeal)
-				if (!m_postSeal.isSealed() || m_postSeal.info().hash() != newPreMine.info().parentHash())
-					for (auto const& t: m_postSeal.pending())
-					{
-						clog(ClientTrace) << "Resubmitting post-seal transaction " << t;
+		DEV_WRITE_GUARDED(x_preSeal)
+			m_preSeal = newPreMine;
+		DEV_WRITE_GUARDED(x_working)
+			m_working = newPreMine;
+		DEV_READ_GUARDED(x_postSeal)
+			if (!m_postSeal.isSealed() || m_postSeal.info().hash() != newPreMine.info().parentHash())
+				for (auto const& t: m_postSeal.pending())
+				{
+					clog(ClientTrace) << "Resubmitting post-seal transaction " << t;
 //						ctrace << "Resubmitting post-seal transaction " << t;
-						auto ir = m_tq.import(t, IfDropped::Retry);
-						if (ir != ImportResult::Success)
-							onTransactionQueueReady();
-					}
-			DEV_READ_GUARDED(x_working) DEV_WRITE_GUARDED(x_postSeal)
-				m_postSeal = m_working;
+					auto ir = m_tq.import(t, IfDropped::Retry);
+					if (ir != ImportResult::Success)
+						onTransactionQueueReady();
+				}
+		DEV_READ_GUARDED(x_working) DEV_WRITE_GUARDED(x_postSeal)
+			m_postSeal = m_working;
 
-			onPostStateChanged();
-		}
-
-		// Quick hack for now - the TQ at this point already has the prior pending transactions in it;
-		// we should resync with it manually until we are stricter about what constitutes "knowing".
-		onTransactionQueueReady();
+		onPostStateChanged();
 	}
+
+	// Quick hack for now - the TQ at this point already has the prior pending transactions in it;
+	// we should resync with it manually until we are stricter about what constitutes "knowing".
+	onTransactionQueueReady();
 }
 
 void Client::resetState()
@@ -543,7 +544,8 @@ void Client::onChainChanged(ImportRoute const& _ir)
 		m_tq.dropGood(t);
 	}
 	onNewBlocks(_ir.liveBlocks, changeds);
-	resyncStateFromChain();
+	if (!isMajorSyncing())
+		resyncStateFromChain();
 	noteChanged(changeds);
 }
 
@@ -659,7 +661,7 @@ void Client::doWork(bool _doWait)
 	bool isSealed = false;
 	DEV_READ_GUARDED(x_working)
 		isSealed = m_working.isSealed();
-	if (!isSealed && !isSyncing() && !m_remoteWorking && m_syncTransactionQueue.compare_exchange_strong(t, false))
+	if (!isSealed && !isMajorSyncing() && !m_remoteWorking && m_syncTransactionQueue.compare_exchange_strong(t, false))
 		syncTransactionQueue();
 
 	tick();
@@ -807,4 +809,46 @@ void Client::rewind(unsigned _n)
 	auto h = m_host.lock();
 	if (h)
 		h->reset();
+}
+
+pair<h256, Address> Client::submitTransaction(TransactionSkeleton const& _t, Secret const& _secret)
+{
+	prepareForTransaction();
+
+	TransactionSkeleton ts(_t);
+	ts.from = toAddress(_secret);
+	if (_t.nonce == Invalid256)
+		ts.nonce = max<u256>(postSeal().transactionsFrom(ts.from), m_tq.maxNonce(ts.from));
+	if (ts.gasPrice == Invalid256)
+		ts.gasPrice = gasBidPrice();
+	if (ts.gas == Invalid256)
+		ts.gas = min<u256>(gasLimitRemaining() / 5, balanceAt(ts.from) / ts.gasPrice);
+
+	Transaction t(ts, _secret);
+	m_tq.import(t.rlp());
+
+	return make_pair(t.sha3(), toAddress(ts.from, ts.nonce));
+}
+
+// TODO: remove try/catch, allow exceptions
+ExecutionResult Client::call(Address const& _from, u256 _value, Address _dest, bytes const& _data, u256 _gas, u256 _gasPrice, BlockNumber _blockNumber, FudgeFactor _ff)
+{
+	ExecutionResult ret;
+	try
+	{
+		Block temp = block(_blockNumber);
+		u256 nonce = max<u256>(temp.transactionsFrom(_from), m_tq.maxNonce(_from));
+		u256 gas = _gas == Invalid256 ? gasLimitRemaining() : _gas;
+		u256 gasPrice = _gasPrice == Invalid256 ? gasBidPrice() : _gasPrice;
+		Transaction t(_value, gasPrice, gas, _dest, _data, nonce);
+		t.forceSender(_from);
+		if (_ff == FudgeFactor::Lenient)
+			temp.mutableState().addBalance(_from, (u256)(t.gas() * t.gasPrice() + t.value()));
+		ret = temp.execute(bc().lastBlockHashes(), t, Permanence::Reverted);
+	}
+	catch (...)
+	{
+		// TODO: Some sort of notification of failure.
+	}
+	return ret;
 }

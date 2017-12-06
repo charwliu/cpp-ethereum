@@ -27,12 +27,14 @@
 #include <test/tools/libtesteth/TestHelper.h>
 #include <test/tools/fuzzTesting/fuzzHelper.h>
 #include <test/tools/libtesteth/TestSuite.h>
+#include <boost/filesystem/path.hpp>
 #include <string>
 
 using namespace std;
 using namespace json_spirit;
 using namespace dev;
 using namespace dev::eth;
+namespace fs = boost::filesystem;
 
 namespace dev {  namespace test {
 
@@ -47,7 +49,7 @@ class TransactionTestSuite: public TestSuite
 			string testname = i.first;
 			json_spirit::mObject& o = i.second.get_obj();
 
-			if (!TestOutputHelper::passTest(testname))
+			if (!TestOutputHelper::get().checkTest(testname))
 			{
 				o.clear(); //don't add irrelevant tests to the final file when filling
 				continue;
@@ -62,7 +64,7 @@ class TransactionTestSuite: public TestSuite
 
 			if (_fillin)
 			{
-				BOOST_REQUIRE(o.count("transaction") > 0);
+				BOOST_REQUIRE_MESSAGE(o.count("transaction") > 0, "transaction section not found! " + TestOutputHelper::get().testFileName());
 				mObject tObj = o["transaction"].get_obj();
 
 				//Construct Rlp of the given transaction
@@ -82,7 +84,7 @@ class TransactionTestSuite: public TestSuite
 					if (o.count("sender") > 0)
 					{
 						string expectSender = toString(o["sender"].get_str());
-						BOOST_CHECK_MESSAGE(toString(txFromFields.sender()) == expectSender, "Error filling transaction test " + TestOutputHelper::testName() + ": expected another sender address! (got: " + toString(txFromFields.sender()) + "), expected: (" + expectSender + ")");
+						BOOST_CHECK_MESSAGE(toString(txFromFields.sender()) == expectSender, "Error filling transaction test " + TestOutputHelper::get().testName() + ": expected another sender address! (got: " + toString(txFromFields.sender()) + "), expected: (" + expectSender + ")");
 					}
 					o["sender"] = toString(txFromFields.sender());
 					o["transaction"] = ImportTest::makeAllFieldsHex(tObj);
@@ -165,9 +167,14 @@ class TransactionTestSuite: public TestSuite
 		return v;
 	}//doTransactionTests
 
-	std::string suiteFolder() const override
+	fs::path suiteFolder() const override
 	{
 		return "TransactionTests";
+	}
+
+	fs::path suiteFillerFolder() const override
+	{
+		return "TransactionTestsFiller";
 	}
 };
 
@@ -180,11 +187,8 @@ public:
 	{
 		string const& casename = boost::unit_test::framework::current_test_case().p_name;
 		test::TransactionTestSuite suite;
-
-		if ((casename == "ttWrongRLPFrontier" || casename == "ttWrongRLPHomestead") && test::Options::get().filltests)
-			suite.copyAllTestsFromFolder(casename);
-		else
-			suite.runAllTestsInFolder(casename);
+		test::tryRunSingleTestFile(suite);
+		suite.runAllTestsInFolder(casename);
 	}
 };
 
@@ -200,6 +204,5 @@ BOOST_AUTO_TEST_CASE(ttSpecConstantinople){}
 BOOST_AUTO_TEST_CASE(ttVRuleEip158){}
 BOOST_AUTO_TEST_CASE(ttWrongRLPFrontier){}
 BOOST_AUTO_TEST_CASE(ttWrongRLPHomestead){}
-BOOST_AUTO_TEST_CASE(ttZeroSigConstantinople){}
 
 BOOST_AUTO_TEST_SUITE_END()

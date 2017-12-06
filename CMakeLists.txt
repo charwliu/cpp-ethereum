@@ -23,13 +23,18 @@ if(CMAKE_CONFIGURATION_TYPES)
     set(CMAKE_CONFIGURATION_TYPES "Debug;Release;RelWithDebInfo" CACHE STRING "" FORCE)
 endif()
 
+# Map current configuration to configurations of imported targets.
+set(CMAKE_MAP_IMPORTED_CONFIG_DEBUG Release)
+set(CMAKE_MAP_IMPORTED_CONFIG_RELWITHDEBINFO Release)
+
 set(HUNTER_CONFIGURATION_TYPES Release)
 set(HUNTER_JOBS_NUMBER 4)
 set(HUNTER_CACHE_SERVERS "https://github.com/ethereum/hunter-cache")
 include(HunterGate)
 HunterGate(
-    URL "https://github.com/ruslo/hunter/archive/v0.19.71.tar.gz"
-    SHA1 "8fe144d9490501d398777532e0c0f56bc7bb0ec7"
+    URL "https://github.com/ruslo/hunter/archive/v0.19.173.tar.gz"
+    SHA1 "750fb1d621af971fad6f303356b13017ad9f5e15"
+    LOCAL
 )
 
 if(HUNTER_ENABLED)
@@ -72,19 +77,21 @@ include(EthExecutableHelper)
 include(EthDependencies)
 include(EthUtils)
 
-hunter_add_package(Boost COMPONENTS filesystem system thread)
-find_package(Boost CONFIG REQUIRED filesystem system thread)
+hunter_add_package(Boost COMPONENTS program_options filesystem system thread)
+find_package(Boost CONFIG REQUIRED program_options filesystem system thread)
 
 hunter_add_package(jsoncpp)
 find_package(jsoncpp CONFIG REQUIRED)
 
 hunter_add_package(Snappy)
-find_package(Snappy CONFIG)
+find_package(Snappy CONFIG REQUIRED)
 
-include(ProjectCryptopp)
+hunter_add_package(cryptopp)
+find_package(cryptopp CONFIG REQUIRED)
+
 include(ProjectJsonRpcCpp)
 include(ProjectSecp256k1)
-include(ProjectSnark)
+include(ProjectLibFF)
 
 find_package(Threads)
 
@@ -92,7 +99,12 @@ if(MINIUPNPC)
     find_package(Miniupnpc 1.8.2013 REQUIRED)
 endif()
 
+set(UTILS_INCLUDE_DIR "${CMAKE_SOURCE_DIR}/utils")
+
 configure_project()
+
+#Global include path for all libs.
+include_directories("${CMAKE_SOURCE_DIR}")
 
 add_subdirectory(libdevcore)
 add_subdirectory(libdevcrypto)
@@ -105,7 +117,6 @@ add_subdirectory(libevm)
 add_subdirectory(libethereum)
 add_subdirectory(libethashseal)
 
-add_subdirectory(libwhisper)
 add_subdirectory(libwebthree)
 add_subdirectory(libweb3jsonrpc)
 

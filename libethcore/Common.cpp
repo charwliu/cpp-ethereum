@@ -20,10 +20,8 @@
  */
 
 #include "Common.h"
-#include <boost/algorithm/string/case_conv.hpp>
 #include <libdevcore/Base64.h>
 #include <libdevcore/Terminal.h>
-#include <libdevcore/CommonData.h>
 #include <libdevcore/CommonIO.h>
 #include <libdevcore/Log.h>
 #include <libdevcore/SHA3.h>
@@ -134,7 +132,7 @@ static void badBlockInfo(BlockHeader const& _bi, string const& _err)
 	ss << c_border + "  Import Failure     " + _err + string(max<int>(0, 53 - _err.size()), ' ') + "  " + c_border << "\n";
 	ss << c_space << "\n";
 	string bin = toString(_bi.number());
-	ss << c_border + ("                     Guru Meditation #" + string(max<int>(0, 8 - bin.size()), '0') + bin + "." + _bi.hash().abridged() + "                    ") + c_border << "\n";
+	ss << c_border + ("                     Bad Block #" + string(max<int>(0, 8 - bin.size()), '0') + bin + "." + _bi.hash().abridged() + "                    ") + c_border << "\n";
 	ss << c_space << "\n";
 	ss << c_line;
 	cwarn << "\n" + ss.str();

@@ -326,6 +326,15 @@ inline std::ostream& operator<<(std::ostream& _out, FixedHash<N> const& _h)
 	return _out;
 }
 
+template <unsigned N>
+inline std::istream& operator>>(std::istream& _in, FixedHash<N>& o_h)
+{
+	std::string s;
+	_in >> s;
+	o_h = FixedHash<N>(s, FixedHash<N>::FromHex, FixedHash<N>::AlignRight);
+	return _in;
+}
+
 /// Stream I/O for the SecureFixedHash class.
 template <unsigned N>
 inline std::ostream& operator<<(std::ostream& _out, SecureFixedHash<N> const& _h)
@@ -356,14 +365,6 @@ inline h160 right160(h256 const& _t)
 {
 	h160 ret;
 	memcpy(ret.data(), _t.data() + 12, 20);
-	return ret;
-}
-
-/// Convert the given value into h160 (160-bit unsigned integer) using the left 20 bytes.
-inline h160 left160(h256 const& _t)
-{
-	h160 ret;
-	memcpy(&ret[0], _t.data(), 20);
 	return ret;
 }
 

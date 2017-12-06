@@ -31,6 +31,7 @@
 #include <libdevcore/RLP.h>
 #include <libdevcore/TrieHash.h>
 #include <libdevcore/FileSystem.h>
+#include <libdevcore/FixedHash.h>
 #include <libethcore/Exceptions.h>
 #include <libethcore/BlockHeader.h>
 
@@ -174,12 +175,6 @@ void addBlockInfo(Exception& io_ex, BlockHeader const& _header, bytes&& _blockDa
 
 }
 
-#if ETH_DEBUG&&0
-static const chrono::system_clock::duration c_collectionDuration = chrono::seconds(15);
-static const unsigned c_collectionQueueSize = 2;
-static const unsigned c_maxCacheSize = 1024 * 1024 * 1;
-static const unsigned c_minCacheSize = 1;
-#else
 
 /// Duration between flushes.
 static const chrono::system_clock::duration c_collectionDuration = chrono::seconds(60);
@@ -193,7 +188,6 @@ static const unsigned c_maxCacheSize = 1024 * 1024 * 64;
 /// Min size, below which we don't bother flushing it.
 static const unsigned c_minCacheSize = 1024 * 1024 * 32;
 
-#endif
 
 BlockChain::BlockChain(ChainParams const& _p, fs::path const& _dbPath, WithExisting _we, ProgressCallback const& _pc):
 	m_lastBlockHashes(new LastBlockHashes(*this)),
@@ -333,8 +327,11 @@ void BlockChain::close()
 	// Not thread safe...
 	delete m_extrasDB;
 	delete m_blocksDB;
-	m_lastBlockHash = m_genesisHash;
-	m_lastBlockNumber = 0;
+	DEV_WRITE_GUARDED(x_lastBlockHash)
+	{
+		m_lastBlockHash = m_genesisHash;
+		m_lastBlockNumber = 0;
+	}
 	m_details.clear();
 	m_blocks.clear();
 	m_logBlooms.clear();
@@ -817,7 +814,8 @@ ImportRoute BlockChain::insertBlockAndExtras(VerifiedBlockRef const& _block, byt
 
 		// Most of the time these two will be equal - only when we're doing a chain revert will they not be
 		if (common != last)
-			clearCachesDuringChainReversion(number(common) + 1);
+			DEV_READ_GUARDED(x_lastBlockHash)
+				clearCachesDuringChainReversion(number(common) + 1);
 
 		// Go through ret backwards (i.e. from new head to common) until hash != last.parent and
 		// update m_transactionAddresses, m_blockHashes
@@ -1165,9 +1163,13 @@ void BlockChain::updateStats() const
 			m_lastStats.memBlocks += i.second.size() + 64;
 	DEV_READ_GUARDED(x_details)
 		m_lastStats.memDetails = getHashSize(m_details);
+	size_t logBloomsSize = 0;
+	size_t blocksBloomsSize = 0;
 	DEV_READ_GUARDED(x_logBlooms)
-		DEV_READ_GUARDED(x_blocksBlooms)
-			m_lastStats.memLogBlooms = getHashSize(m_logBlooms) + getHashSize(m_blocksBlooms);
+		logBloomsSize = getHashSize(m_logBlooms);
+	DEV_READ_GUARDED(x_blocksBlooms)
+		blocksBloomsSize = getHashSize(m_blocksBlooms);
+	m_lastStats.memLogBlooms = logBloomsSize + blocksBloomsSize;
 	DEV_READ_GUARDED(x_receipts)
 		m_lastStats.memReceipts = getHashSize(m_receipts);
 	DEV_READ_GUARDED(x_blockHashes)
@@ -1188,13 +1190,6 @@ void BlockChain::garbageCollect(bool _force)
 	m_lastCollection = chrono::system_clock::now();
 
 	Guard l(x_cacheUsage);
-	WriteGuard l1(x_blocks);
-	WriteGuard l2(x_details);
-	WriteGuard l3(x_blockHashes);
-	WriteGuard l4(x_receipts);
-	WriteGuard l5(x_logBlooms);
-	WriteGuard l6(x_transactionAddresses);
-	WriteGuard l7(x_blocksBlooms);
 	for (CacheID const& id: m_cacheUsage.back())
 	{
 		m_inUse.erase(id);
@@ -1202,23 +1197,47 @@ void BlockChain::garbageCollect(bool _force)
 		switch (id.second)
 		{
 		case (unsigned)-1:
+		{
+			WriteGuard l(x_blocks);
 			m_blocks.erase(id.first);
 			break;
+		}
 		case ExtraDetails:
+		{
+			WriteGuard l(x_details);
 			m_details.erase(id.first);
 			break;
+		}
+		case ExtraBlockHash:
+		{
+			// m_cacheUsage should not contain ExtraBlockHash elements currently.  See the second noteUsed() in BlockChain.h, which is a no-op.
+			assert(false);
+			break;
+		}
 		case ExtraReceipts:
+		{
+			WriteGuard l(x_receipts);
 			m_receipts.erase(id.first);
 			break;
+		}
 		case ExtraLogBlooms:
+		{
+			WriteGuard l(x_logBlooms);
 			m_logBlooms.erase(id.first);
 			break;
+		}
 		case ExtraTransactionAddress:
+		{
+			WriteGuard l(x_transactionAddresses);
 			m_transactionAddresses.erase(id.first);
 			break;
+		}
 		case ExtraBlocksBlooms:
+		{
+			WriteGuard l(x_blocksBlooms);
 			m_blocksBlooms.erase(id.first);
 			break;
+		}
 		}
 	}
 	m_cacheUsage.pop_back();
@@ -1250,7 +1269,7 @@ void BlockChain::checkConsistency()
 
 void BlockChain::clearCachesDuringChainReversion(unsigned _firstInvalid)
 {
-	unsigned end = number() + 1;
+	unsigned end = m_lastBlockNumber + 1;
 	DEV_WRITE_GUARDED(x_blockHashes)
 		for (auto i = _firstInvalid; i < end; ++i)
 			m_blockHashes.erase(i);

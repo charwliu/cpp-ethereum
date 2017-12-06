@@ -27,36 +27,37 @@
 #include <test/tools/fuzzTesting/fuzzHelper.h>
 #include <libevm/VMFactory.h>
 #include <libdevcore/Common.h>
+#include <test/tools/jsontests/StateTests.h>
 
-//String Variables
-extern std::string const c_testExampleStateTest;
-extern std::string const c_testExampleTransactionTest;
-extern std::string const c_testExampleVMTest;
-extern std::string const c_testExampleBlockchainTest;
-extern std::string const c_testExampleRLPTest;
-
-//Main Test functinos
-int fillRandomTest(std::function<json_spirit::mValue(json_spirit::mValue&, bool)> _doTests, std::string const& _testString);
+using namespace dev;
 
 namespace dev { namespace test {
-int createRandomTest()
+
+bool createRandomTest()
 {
-	dev::test::Options& options = const_cast<dev::test::Options&>(dev::test::Options::get());
-	if (options.rCurrentTestSuite != test::c_GeneralStateTests)
+	StateTestSuite suite;
+	dev::test::Options const& options = dev::test::Options::get();
+	auto testFixture = TestOutputHelperFixture();
+	if (options.rCurrentTestSuite != suite.suiteFolder())
 	{
 		std::cerr << "Error! Test suite '" + options.rCurrentTestSuite + "' not supported! (Usage -t <TestSuite>)\n";
-		return 1;
+		return false;
 	}
 	else
 	{
-		TestOutputHelper testOutputHelper;
-		return fillRandomTest(dev::test::doStateTests, c_testExampleStateTest);
+		RandomCodeOptions codeOptions;
+		if (options.randomCodeOptionsPath.is_initialized())
+			codeOptions.loadFromFile(options.randomCodeOptionsPath.get());
+		std::string test = test::RandomCode::get().fillRandomTest(suite, c_testExampleStateTest, codeOptions);
+		std::cout << test << "\n";
+		return test.empty() ? false : true;
 	}
 }
+
 }} //namespaces
 
 //Prints a generated test Json into std::out
-int fillRandomTest(std::function<json_spirit::mValue(json_spirit::mValue&, bool)> _doTests, std::string const& _testString)
+std::string test::RandomCodeBase::fillRandomTest(dev::test::TestSuite const& _testSuite, std::string const& _testString, test::RandomCodeOptions const& _options)
 {
 	bool wasError = false;
 	json_spirit::mValue v;
@@ -64,10 +65,10 @@ int fillRandomTest(std::function<json_spirit::mValue(json_spirit::mValue&, bool)
 	{
 		std::string newTest = _testString;
 		std::map<std::string, std::string> nullReplaceMap;
-		dev::test::RandomCode::parseTestWithTypes(newTest, nullReplaceMap);
+		parseTestWithTypes(newTest, nullReplaceMap, _options);
 		json_spirit::read_string(newTest, v);
-		v = _doTests(v, true); //filltests
-		_doTests(v, false); //checktest
+		v = _testSuite.doTests(v, true); //filltests
+		_testSuite.doTests(v, false); //checktest
 	}
 	catch (dev::Exception const& _e)
 	{
@@ -83,17 +84,14 @@ int fillRandomTest(std::function<json_spirit::mValue(json_spirit::mValue&, bool)
 	if (wasError)
 	{
 		std::cerr << json_spirit::write_string(v, true);
-		return 1;
+		return std::string();
 	}
-
-	std::cout << json_spirit::write_string(v, true);
-	return 0;
+	return json_spirit::write_string(v, true);
 }
 
 /// Parse Test string replacing keywords to fuzzed values
-void dev::test::RandomCode::parseTestWithTypes(std::string& _test, std::map<std::string, std::string> const& _varMap)
+void test::RandomCodeBase::parseTestWithTypes(std::string& _test, std::map<std::string, std::string> const& _varMap, RandomCodeOptions const& _options)
 {
-	dev::test::RandomCodeOptions options; //use default options
 	std::vector<std::string> types = getTypes();
 
 	for (std::map<std::string, std::string>::const_iterator it = _varMap.begin(); it != _varMap.end(); it++)
@@ -108,48 +106,54 @@ void dev::test::RandomCode::parseTestWithTypes(std::string& _test, std::map<std:
 			if (type == "[RLP]")
 			{
 				std::string debug;
-				int randomDepth = 1 + (int)dev::test::RandomCode::randomUniInt() % 10;
-				replace = dev::test::RandomCode::rndRLPSequence(randomDepth, debug);
+				int randomDepth = 1 + (int)randomSmallUniInt() % 10;
+				replace = rndRLPSequence(randomDepth, debug);
 				cnote << debug;
 			}
 			else if (type == "[CODE]")
-				replace = dev::test::RandomCode::generate(10, options);
+				replace = generate(50, _options);
 			else if (type == "[HEX]")
-				replace = dev::test::RandomCode::randomUniIntHex();
+				replace = randomUniIntHex();
 			else if (type == "[HEX32]")
-				replace = dev::test::RandomCode::randomUniIntHex(0, std::numeric_limits<uint32_t>::max());
+				replace = randomUniIntHex(0, std::numeric_limits<uint32_t>::max());
 			else if (type == "[HASH20]")
-				replace = dev::test::RandomCode::rndByteSequence(20);
+				replace = rndByteSequence(20);
 			else if (type == "[HASH32]")
-				replace = dev::test::RandomCode::rndByteSequence(32);
+				replace = rndByteSequence(32);
 			else if (type == "[0xHASH32]")
-				replace = "0x" + dev::test::RandomCode::rndByteSequence(32);
+				replace = "0x" + rndByteSequence(32);
 			else if (type == "[V]")
 			{
-				int random = test::RandomCode::randomPercent();
+				int random = randomPercent();
 				if (random < 30)
 					replace = "0x1c";
 				else if (random < 60)
 					replace = "0x1d";
 				else
-					replace = "0x" + dev::test::RandomCode::rndByteSequence(1);
+					replace = "0x" + rndByteSequence(1);
 			}
 			else if (type == "[BLOCKGASLIMIT]")
-				replace = test::RandomCode::randomUniIntHex(dev::u256("100000"), dev::u256("36028797018963967"));
+				replace = randomUniIntHex(dev::u256("100000"), dev::u256("36028797018963967"));
 			else if (type == "[DESTADDRESS]")
 			{
-				Address address = options.getRandomAddress(RandomCodeOptions::AddressType::PrecompiledOrStateOrCreate);
-				if (address != ZeroAddress) //else transaction creation
+				Address address = _options.getRandomAddress(RandomCodeOptions::AddressType::PrecompiledOrStateOrCreate);
+				if (address != ZeroAddress)
 					replace = "0x" + toString(address);
+				else
+					replace = std::string(); // transaction creation
 			}
 			else if (type == "[ADDRESS]")
-				replace = toString(options.getRandomAddress(RandomCodeOptions::AddressType::StateAccount));
-			else if (type == "[0xADDRESS]")
-				replace = "0x" + toString(options.getRandomAddress(RandomCodeOptions::AddressType::StateAccount));
+			{
+				Address destAddress = _options.getRandomAddress(RandomCodeOptions::AddressType::PrecompiledOrState);
+				replace = toString(destAddress);
+			}
+			else if (type == "[0xADDRESS]") {
+				replace = "0x" + toString(_options.getRandomAddress(RandomCodeOptions::AddressType::StateAccount));
+			}
 			else if (type == "[TRANSACTIONGASLIMIT]")
-				replace = test::RandomCode::randomUniIntHex(dev::u256("5000"), dev::u256("10000000"));
+				replace = randomUniIntHex(dev::u256("25000"), dev::u256("10000000"));
 			else if (type == "[GASPRICE]")
-				replace = test::RandomCode::randomUniIntHex(0, dev::u256("10"));
+				replace = randomUniIntHex(0, dev::u256("10"));
 			else
 			{
 				//Replace type from varMap if varMap is set
@@ -168,7 +172,7 @@ void dev::test::RandomCode::parseTestWithTypes(std::string& _test, std::map<std:
 	}
 }
 
-std::vector<std::string> dev::test::RandomCode::getTypes()
+std::vector<std::string> test::RandomCodeBase::getTypes()
 {
 	return {
 		"[RLP]",				//Random RLP String
@@ -180,8 +184,8 @@ std::vector<std::string> dev::test::RandomCode::getTypes()
 		"[0xHASH32]",			//Random hash string 0x...  32 byte length
 		"[V]",					//Random V value for transaction sig. could be invalid.
 		"[BLOCKGASLIMIT]",		//Random block gas limit with max of 2**55-1
-		"[DESTADDRESS]",		//Random destination address for transaction (could be empty string)
 		"[ADDRESS]",			//Random account address
+		"[DESTADDRESS]",		//Random destination address for transaction (could be empty string)
 		"[0xADDRESS]",			//Random account address
 		"[TRANSACTIONGASLIMIT]", //Random reasonable gas limit for a transaction
 		"[GASPRICE]"			//Random reasonable gas price for transaction (could be 0)
@@ -219,28 +223,35 @@ std::string const c_testExampleStateTest = R"(
 		"previousHash" : "[HASH32]"
 		},
 	"pre" : {
-		"[ADDRESS]" : {
+		"ffffffffffffffffffffffffffffffffffffffff" : {
 			"balance" : "[HEX]",
 			"code" : "[CODE]",
 			"nonce" : "[V]",
 			"storage" : {
 			}
 		},
-		"[ADDRESS]" : {
+		"1000000000000000000000000000000000000000" : {
 			"balance" : "[HEX]",
 			"code" : "[CODE]",
 			"nonce" : "[V]",
 			"storage" : {
 			}
 		},
-		"[ADDRESS]" : {
+		"b94f5374fce5edbc8e2a8697c15331677e6ebf0b" : {
 			"balance" : "[HEX]",
 			"code" : "[CODE]",
 			"nonce" : "[V]",
 			"storage" : {
 			}
 		},
-		"[ADDRESS]" : {
+		"c94f5374fce5edbc8e2a8697c15331677e6ebf0b" : {
+			"balance" : "[HEX]",
+			"code" : "[CODE]",
+			"nonce" : "[V]",
+			"storage" : {
+			}
+		},
+		"d94f5374fce5edbc8e2a8697c15331677e6ebf0b" : {
 			"balance" : "[HEX]",
 			"code" : "[CODE]",
 			"nonce" : "[V]",
@@ -261,9 +272,7 @@ std::string const c_testExampleStateTest = R"(
 		],
 		"gasLimit" : [
 			"[TRANSACTIONGASLIMIT]",
-			"0",
-			"21000",
-			"60000"
+			"3000000"
 		],
 		"gasPrice" : "[GASPRICE]",
 		"nonce" : "0",

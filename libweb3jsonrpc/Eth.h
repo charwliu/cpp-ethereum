@@ -27,7 +27,7 @@
 #include <iosfwd>
 #include <jsonrpccpp/server.h>
 #include <jsonrpccpp/common/exception.h>
-#include <libdevcrypto/Common.h>
+#include <libdevcore/Common.h>
 #include "SessionManager.h"
 #include "EthFace.h"
 
@@ -42,13 +42,6 @@ class AccountHolder;
 struct TransactionSkeleton;
 class Interface;
 }
-namespace shh
-{
-class Interface;
-}
-
-extern const unsigned SensibleHttpThreads;
-extern const unsigned SensibleHttpPort;
 
 }
 

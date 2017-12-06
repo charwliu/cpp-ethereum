@@ -51,7 +51,7 @@ namespace utf = boost::unit_test;
 
 BOOST_AUTO_TEST_SUITE(Crypto)
 
-struct DevcryptoTestFixture: public TestOutputHelper {
+struct DevcryptoTestFixture: public TestOutputHelperFixture {
 	DevcryptoTestFixture() : s_secp256k1(Secp256k1PP::get()) {}
 
 	Secp256k1PP* s_secp256k1;
@@ -796,11 +796,11 @@ BOOST_AUTO_TEST_CASE(recoverVgt3)
 	}
 }
 
-BOOST_AUTO_TEST_CASE(PerfSHA256_32, *utf::disabled() *utf::label("perf"))
+BOOST_AUTO_TEST_CASE(PerfSHA256_32, *utf::label("perf"))
 {
 	if (!test::Options::get().all)
 	{
-		clog << "Skipping test Crypto/devcrypto/PerfSHA256_32. Use --all to run it.\n";
+		std::cout << "Skipping test Crypto/devcrypto/PerfSHA256_32. Use --all to run it.\n";
 		return;
 	}
 
@@ -811,11 +811,11 @@ BOOST_AUTO_TEST_CASE(PerfSHA256_32, *utf::disabled() *utf::label("perf"))
 	BOOST_CHECK_EQUAL(hash[0], 0x2a);
 }
 
-BOOST_AUTO_TEST_CASE(PerfSHA256_4000, *utf::disabled() *utf::label("perf"))
+BOOST_AUTO_TEST_CASE(PerfSHA256_4000, *utf::label("perf"))
 {
 	if (!test::Options::get().all)
 	{
-		clog << "Skipping test Crypto/devcrypto/PerfSHA256_4000. Use --all to run it.\n";
+		std::cout << "Skipping test Crypto/devcrypto/PerfSHA256_4000. Use --all to run it.\n";
 		return;
 	}
 

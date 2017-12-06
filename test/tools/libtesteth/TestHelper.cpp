@@ -18,19 +18,16 @@
  * Helper functions to work with json::spirit and test files
  */
 
-#include <include/BuildInfo.h>
-#include <libethashseal/EthashCPUMiner.h>
-#include <test/tools/libtesteth/TestHelper.h>
-#include <test/tools/libtesteth/TestOutputHelper.h>
-#include <test/tools/libtesteth/Options.h>
+#include "TestHelper.h"
+#include "TestOutputHelper.h"
+#include "Options.h"
 
-#if !defined(_WIN32)
-#include <stdio.h>
-#endif
+#include <BuildInfo.h>
+#include <libethashseal/EthashCPUMiner.h>
+#include <libethereum/Client.h>
+
 #include <boost/algorithm/string/trim.hpp>
 #include <boost/filesystem/path.hpp>
-#include <libethereum/Client.h>
-#include <test/tools/libtesteth/Stats.h>
 #include <string>
 
 using namespace std;
@@ -96,6 +93,15 @@ void mine(BlockHeader& _bi, SealEngineFace* _sealer, bool _verify)
 namespace test
 {
 
+void tryRunSingleTestFile(dev::test::TestSuite const& _suite)
+{
+	if (test::Options::get().singleTestFile.is_initialized())
+	{
+		boost::filesystem::path file(test::Options::get().singleTestFile.get());
+		_suite.runTestWithoutFiller(file);
+		exit(0);
+	}
+}
 
 string netIdToString(eth::Network _netId)
 {
@@ -138,7 +144,7 @@ eth::Network stringToNetId(string const& _netname)
 		if (netIdToString(net) == _netname)
 			return net;
 
-	BOOST_ERROR(TestOutputHelper::testName() + " network not found: " + _netname);
+	BOOST_ERROR(TestOutputHelper::get().testName() + " network not found: " + _netname);
 	return eth::Network::FrontierTest;
 }
 
@@ -323,7 +329,7 @@ string compileLLL(string const& _code)
 void checkHexHasEvenLength(string const& _str)
 {
 	if (_str.size() % 2)
-		BOOST_ERROR(TestOutputHelper::testName() + " An odd-length hex string represents a byte sequence: " + _str);
+		BOOST_ERROR(TestOutputHelper::get().testName() + " An odd-length hex string represents a byte sequence: " + _str);
 }
 
 bytes importCode(json_spirit::mObject const& _o)
@@ -420,76 +426,6 @@ void checkCallCreates(eth::Transactions const& _resultCallCreates, eth::Transact
 	}
 }
 
-void executeTests(const string& _name, fs::path const& _testPathAppendix, fs::path const& _fillerPathAppendix, std::function<json_spirit::mValue(json_spirit::mValue const&, bool)> doTests)
-{
-	fs::path const testPath = getTestPath() / _testPathAppendix;
-
-	if (Options::get().stats)
-		Listener::registerListener(Stats::get());
-
-	//Get the test name
-	string name = _name;
-	if (_name.rfind("Filler.json") != std::string::npos)
-		name = _name.substr(0, _name.rfind("Filler.json"));
-	else if (_name.rfind(".json") != std::string::npos)
-		name = _name.substr(0, _name.rfind(".json"));
-
-	if (Options::get().filltests)
-	{
-		if (!Options::get().singleTest)
-			cnote << "Populating tests...";
-		json_spirit::mValue v;
-		boost::filesystem::path p(__FILE__);
-
-		string const nameEnding = "Filler.json";
-		fs::path const testfileUnderTestPath = fs::path ("src") / _fillerPathAppendix / fs::path(name + nameEnding);
-		fs::path const testfilename = getTestPath() / testfileUnderTestPath;
-		string s = asString(dev::contents(testfilename));
-		BOOST_REQUIRE_MESSAGE(s.length() > 0, "Contents of " + testfilename.string() + " is empty.");
-
-		json_spirit::read_string(s, v);
-		removeComments(v);
-		json_spirit::mValue output = doTests(v, true);
-		addClientInfo(output, testfileUnderTestPath);
-		writeFile(testPath / fs::path(name + ".json"), asBytes(json_spirit::write_string(output, true)));
-	}
-
-	if ((Options::get().singleTest && Options::get().singleTestName == name) || !Options::get().singleTest)
-		cnote << "TEST " << name << ":";
-
-	json_spirit::mValue v;
-	string s = asString(dev::contents(testPath / fs::path(name + ".json")));
-	BOOST_REQUIRE_MESSAGE(s.length() > 0, "Contents of " << (testPath / fs::path(name + ".json")).string() << " is empty. Have you cloned the 'tests' repo branch develop and set ETHEREUM_TEST_PATH to its path?");
-	json_spirit::read_string(s, v);
-	Listener::notifySuiteStarted(name);
-	doTests(v, false);
-}
-
-void removeComments(json_spirit::mValue& _obj)
-{
-	if (_obj.type() == json_spirit::obj_type)
-	{
-		std::list<string> removeList;
-		for (auto& i: _obj.get_obj())
-		{
-			if (i.first.substr(0, 2) == "//")
-			{
-				removeList.push_back(i.first);
-				continue;
-			}
-
-			removeComments(i.second);
-		}
-		for (auto& i: removeList)
-			_obj.get_obj().erase(_obj.get_obj().find(i));
-	}
-	else if (_obj.type() == json_spirit::array_type)
-	{
-		for (auto& i: _obj.get_array())
-			removeComments(i);
-	}
-}
-
 string prepareVersionString()
 {
 	//cpp-1.3.0+commit.6be76b64.Linux.g++
@@ -507,29 +443,6 @@ string prepareLLLCVersionString()
 	if (pos != string::npos)
 		return result.substr(pos, result.length());
 	return "Error getting LLLC Version";
-}
-
-void addClientInfo(json_spirit::mValue& _v, fs::path const& _testSource)
-{
-	for (auto& i: _v.get_obj())
-	{
-		json_spirit::mObject& o = i.second.get_obj();
-		json_spirit::mObject clientinfo;
-
-		string comment;
-		if (o.count("_info"))
-		{
-			json_spirit::mObject& existingInfo = o["_info"].get_obj();
-			if (existingInfo.count("comment"))
-				comment = existingInfo["comment"].get_str();
-		}
-
-		clientinfo["filledwith"] = prepareVersionString();
-		clientinfo["lllcversion"] = prepareLLLCVersionString();
-		clientinfo["source"] = _testSource.string();
-		clientinfo["comment"] = comment;
-		o["_info"] = clientinfo;
-	}
 }
 
 void copyFile(fs::path const& _source, fs::path const& _destination)
