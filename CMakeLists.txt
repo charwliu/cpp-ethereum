@@ -1,34 +1,13 @@
-#------------------------------------------------------------------------------
-# Top-level CMake file for cpp-ethereum.
-#
-# The documentation for cpp-ethereum is hosted at http://cpp-ethereum.org
-#
-# ------------------------------------------------------------------------------
-# This file is part of cpp-ethereum.
-#
-# cpp-ethereum is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
-# cpp-ethereum is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with cpp-ethereum.  If not, see <http://www.gnu.org/licenses/>
-#
-# (c) 2014-2016 cpp-ethereum contributors.
-#------------------------------------------------------------------------------
+# cmake global.
+cmake_minimum_required(VERSION 2.8.12)
 
-cmake_minimum_required(VERSION 3.5.1)
-
-if (NOT DEFINED CMAKE_TOOLCHAIN_FILE)
-    # The default toolchain file configures compilers and build environment.
-    # This configuration is also used by hunter to build dependencies.
-    # CMake will cache this value, not need to explictly specify CACHE param.
-    set(CMAKE_TOOLCHAIN_FILE ${CMAKE_SOURCE_DIR}/cmake/toolchain.cmake)
+set(PROJECT_VERSION "0.9.41")
+if (${CMAKE_VERSION} VERSION_GREATER 3.0)
+	cmake_policy(SET CMP0042 OLD) 	# fix MACOSX_RPATH
+	cmake_policy(SET CMP0048 NEW) 	# allow VERSION argument in project()
+	project(ethereum VERSION ${PROJECT_VERSION})
+else()
+	project(ethereum)
 endif()
 
 set(ETH_CMAKE_DIR "${CMAKE_CURRENT_LIST_DIR}/cmake" CACHE PATH "The path to the cmake directory")

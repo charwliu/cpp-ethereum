@@ -518,7 +518,7 @@ u256 Block::enact(VerifiedBlockRef const& _block, BlockChain const& _bc)
 		InvalidReceiptsStateRoot ex;
 		ex << Hash256RequirementError(m_currentBlock.receiptsRoot(), receiptsRoot);
 		ex << errinfo_receipts(receipts);
-//		ex << errinfo_vmtrace(vmTrace(_block.block, _bc, ImportRequirements::None));
+		ex << errinfo_vmtrace(vmTrace(_block.block, _bc, ImportRequirements::None));
 		BOOST_THROW_EXCEPTION(ex);
 	}
 
@@ -570,8 +570,8 @@ u256 Block::enact(VerifiedBlockRef const& _block, BlockChain const& _bc)
 
 				BlockHeader uncleParent;
 				if (!_bc.isKnown(uncle.parentHash()))
-					BOOST_THROW_EXCEPTION(UnknownParent() << errinfo_hash256(uncle.parentHash()));
-				uncleParent = BlockHeader(_bc.block(uncle.parentHash()));
+					BOOST_THROW_EXCEPTION(UnknownParent());
+				uncleParent = BlockInfo(_bc.block(uncle.parentHash()));
 
 				// m_currentBlock.number() - uncle.number()		m_cB.n - uP.n()
 				// 1											2
@@ -597,7 +597,7 @@ u256 Block::enact(VerifiedBlockRef const& _block, BlockChain const& _bc)
 					BOOST_THROW_EXCEPTION(ex);
 				}
 				// cB
-				// cB.p^1	    1 depth, valid uncle
+				// cB.p^1	    1 depth, valud uncle
 				// cB.p^2	---/  2
 				// cB.p^3	-----/  3
 				// cB.p^4	-------/  4
@@ -614,7 +614,7 @@ u256 Block::enact(VerifiedBlockRef const& _block, BlockChain const& _bc)
 					ex << errinfo_currentNumber(m_currentBlock.number());
 					BOOST_THROW_EXCEPTION(ex);
 				}
-				uncle.verify(CheckNothingNew/*CheckParent*/, uncleParent);
+				uncle.verifyParent(uncleParent);
 
 				rewarded.push_back(uncle);
 				++ii;
